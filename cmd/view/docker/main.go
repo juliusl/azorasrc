@@ -21,7 +21,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	written, err := auto.Fetch(ctx, manifest.Layers)
+	written, err := auto.Fetch(ctx, manifest.Layers...)
 	if err != nil {
 		os.Stderr.WriteString(err.Error())
 		os.Exit(1)

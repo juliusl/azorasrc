@@ -44,7 +44,7 @@ func Resolve(ctx context.Context) (*v1.Manifest, error) {
 	return registry.GetManifest(ctx, reference)
 }
 
-func Fetch(ctx context.Context, descs []v1.Descriptor) (bytes int, err error) {
+func Fetch(ctx context.Context, descs ...v1.Descriptor) (bytes int, err error) {
 	for _, desc := range descs {
 		blob, err := fetch(ctx, desc)
 		if err != nil {
