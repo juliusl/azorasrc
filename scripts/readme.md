@@ -88,5 +88,5 @@ Specifying repository and tag -
 Pulling from github -
 ```sh
 curl https://raw.githubusercontent.com/juliusl/azorasrc/main/scripts/get-oras.sh | 
-    REPO='juliusl/oras' TAG='v0.11.5-alpha' sh;. ./install-oras.sh
+sh;. ./install-oras.sh
 ```

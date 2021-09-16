@@ -26,7 +26,7 @@ func init() {
 	registry = docker.Registry()
 
 	if len(os.Args) < 1 {
-		os.Stderr.WriteString("Usage: view <reference>")
+		os.Stderr.WriteString("Usage: <reference>")
 		os.Exit(1)
 	}
 	reference = os.Args[1]
