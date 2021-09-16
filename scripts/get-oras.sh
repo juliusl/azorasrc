@@ -1,5 +1,7 @@
 #!/bin/sh
 
+# shellcheck disable=SC3043
+
 # This script finds the release by tag, downloads it to the user's home directory
 # extracts the binary to a folder in the user's home directory
 # Then it creates an install-oras.sh file that you can call be . to alias the oras binary
@@ -29,7 +31,7 @@ notice() {
 
 # Search Parameters
 REPO=${REPO:-'oras-project/oras'} # This is used to query a specific github repo 
-TAG=${TAG:-'v0.11.0'}  # This is used to query a specific git tag
+TAG=${TAG:-'v0.2.0-alpha.1'}  # This is used to query a specific git tag
 OS=${OS:-'linux'} # This is used to filter which .tar.gz to download
 ARCH=${ARCH:-'amd64'} # ""
 
@@ -51,12 +53,12 @@ BASIC_AUTH_WGET=${BASIC_AUTH_WGET:-"--http-user=$GITHUB_USERNAME --http-password
 # NOTE:
 # Github has rate-limiting set on their API's so to get around that you need to set your github username
 # when using their API. In most cases this is fine, but when working on the script this is important to have
-if [ -z $GITHUB_USERNAME ]; then
+if [ -z "$GITHUB_USERNAME" ]; then
     BASIC_AUTH=''
     BASIC_AUTH_WGET=''
 
-    log "GITHUB_USERNAME is not set, removing basic authentication parameters"
-    log "(Note: If you are rate-limited, add a value to that variable before launching the script.)"
+    notice "GITHUB_USERNAME is not set, removing basic authentication parameters"
+    notice "(Note: If you are rate-limited, add a value to that variable before launching the script.)"
 fi
 
 # Script Paramters
@@ -74,8 +76,9 @@ callAPI() {
     local auth=$1
     local url=$2
 
-    if hash | grep -q 'curl='; then
-        curl "$auth" -s "$url"
+    # shellcheck disable=SC2046,SC2143,SC2086
+    if [ -z $(hash | grep 'curl=') ]; then
+        curl $auth -s "$url"
     else
         failure "missing \`curl\`, install curl and wget"
         exit 1
@@ -89,7 +92,8 @@ downloadFile() {
     notice "Writing to file: $output"
 
     # Do we have wget?
-    if hash | grep 'wget='; then
+    # shellcheck disable=SC2046,SC2143
+    if [ -z $(hash | grep 'wget=') ]; then
         wget --no-verbose --https-only --wait=15 --limit-rate=500k "$url" -O "$output"
     else
         failure "missing \`wget\`, install wget (and curl)"
@@ -104,7 +108,9 @@ getReleaseDownloadLink() {
     local arch=$4
     local release=$os"_"$arch
     local search="\"name\": \"(.*)$release.tar.gz\""
-    local assetid=$(callAPI "$BASIC_AUTH" "https://api.github.com/repos/$repo/releases/tags/$tag" | grep -C 2 -E "$search" | awk -F '"id": ' '{print $2}' | awk -F ',' '{print $1}')
+    local assetid=
+
+    assetid=$(callAPI $BASIC_AUTH "https://api.github.com/repos/$repo/releases/tags/$tag" | grep -C 2 -E "$search" | awk -F '"id": ' '{print $2}' | awk -F ',' '{print $1}')
 
     # If we couldn't find anything then return 1 to exit the script
     if [ -z "$assetid" ]; then
@@ -112,7 +118,7 @@ getReleaseDownloadLink() {
         return 1
     fi
 
-    ORAS_DOWNLOAD_LINK=$(callAPI "$BASIC_AUTH" "https://api.github.com/repos/$repo/releases/assets/$assetid" | grep -E '"browser_download_url": "(.*)"' | awk -F ' ' '{print $2}' | awk -F '"' '{print $2}' | awk -F '"' '{print $1}')
+    ORAS_DOWNLOAD_LINK=$(callAPI $BASIC_AUTH "https://api.github.com/repos/$repo/releases/assets/$assetid" | grep -E '"browser_download_url": "(.*)"' | awk -F ' ' '{print $2}' | awk -F '"' '{print $2}' | awk -F '"' '{print $1}')
 }
 
 # Create an installer so that you can do `./get-oras | sh & . ./install-oras.sh`

@@ -6,7 +6,9 @@ import (
 	"io"
 	"os"
 
-	authsh "github.com/juliusl/azorasrc/pkg/auth/shell"
+	"oras.land/oras-go/pkg/auth"
+	"oras.land/oras-go/pkg/auth/docker"
+	"oras.land/oras-go/pkg/remotes"
 )
 
 //
@@ -27,11 +29,18 @@ func main() {
 		os.Exit(1)
 	}
 	reference := os.Args[1]
+
 	ctx := context.Background()
 
-	reg, err := authsh.New(ctx, reference)
+	host, namespace, _, err := remotes.Parse(reference)
 	if err != nil {
-		os.Stderr.WriteString("Auth error")
+		os.Stderr.WriteString("could not parse reference")
+		os.Exit(1)
+	}
+
+	reg, err := docker.NewRegistryWithAccessProvider(host, namespace, []string{}, auth.WithLoginContext(ctx))
+	if err != nil {
+		os.Stderr.WriteString("could not create an access provider")
 		os.Exit(1)
 	}
 
