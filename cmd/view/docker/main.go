@@ -38,7 +38,11 @@ func main() {
 		os.Exit(1)
 	}
 
-	reg, err := docker.NewRegistryWithAccessProvider(host, namespace, []string{}, auth.WithLoginContext(ctx))
+	reg, err := docker.NewRegistryWithAccessProvider(
+		host,
+		namespace,
+		[]string{},
+		auth.WithLoginContext(ctx))
 	if err != nil {
 		os.Stderr.WriteString("could not create an access provider")
 		os.Exit(1)

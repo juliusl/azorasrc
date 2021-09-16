@@ -4,5 +4,7 @@
         "titleBar.activeBackground": "#985BAF",
         "titleBar.activeForeground": "#FCFAFC"
     },
-    "build.experimentalWorkspaceModule": true
+    "gopls": {
+        "directoryFilters": ["-deps"]
+    }
 }
