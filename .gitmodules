@@ -1,7 +1,7 @@
-[submodule "src/rc/encpasssh"]
-	path = src/rc/encpasssh
+[submodule "deps/encpasssh"]
+	path = deps/encpasssh
 	url = git@github.com:juliusl/encpass.sh.git
 [submodule "deps/oras-go"]
 	path = deps/oras-go
 	url = git@github.com:juliusl/oras-go.git
-	branch = juliusl/remotes-with-login
+	branch = juliusl/remotes-with-login2
