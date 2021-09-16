@@ -3,5 +3,8 @@
         "activityBar.background": "#76438A",
         "titleBar.activeBackground": "#985BAF",
         "titleBar.activeForeground": "#FCFAFC"
+    },
+    "gopls": {
+        "directoryFilters": ["-deps"]
     }
 }
