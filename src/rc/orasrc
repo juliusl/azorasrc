@@ -1,0 +1,522 @@
+#!/bin/sh
+# shellcheck disable=SC3043
+
+# Root
+ORAS_BEGIN_ENV=${ORAS_BEGIN_ENV:-"$HOME/.config/oras"}
+ORAS_NAMESPACE=${ORAS_NAMESPACE:-""}
+# Dependencies
+ENCPASS_SH_PATH="$ORAS_BEGIN_ENV/$ORAS_NAMESPACE/encpass.sh"
+ORAS_ACCESS_PATH="$ORAS_BEGIN_ENV/$ORAS_NAMESPACE/access.alias"
+# Components
+#ORAS_LOGIN_DIR="$ORAS_BEGIN_ENV/$ORAS_NAMESPACE/login"
+ORAS_ACCESS_DIR="$ORAS_BEGIN_ENV/$ORAS_NAMESPACE/access"
+#ORAS_STORE_DIR="$ORAS_BEGIN_ENV/$ORAS_NAMESPACE/store"
+
+# shellcheck source=encpass.sh
+. "$ENCPASS_SH_PATH"
+# shellcheck source=access.alias
+. "$ORAS_ACCESS_PATH"
+
+# Command context
+context=$1
+shift
+command=$1
+
+# Parameters
+realm=
+service=
+scope=
+host=
+username=
+userkey=
+tokenkey=
+
+# Process command line values
+
+case "$command" in
+#
+# Access: Challenge command
+# usage: script-name challenge realm service scope
+# realm		- TODO
+# service	- TODO
+# scope		- TODO
+#
+challenge)
+	shift;
+	if [ "$#" -lt 3 ]; then
+		echo "usage: login challenge <realm> <service> <scope>"
+		exit 1
+	fi
+	realm=$1
+	service=$2 
+	scope=$3
+	shift 3
+
+	alias challenge=_challenge
+	;;
+#
+# Access: Revoke command
+# usage: script-name revoke host username:(optional)
+# host		- TODO
+# userkey	- TODO
+#
+revoke)
+	shift
+	if [ "$#" -lt 0 ]; then
+		echo "usage: access revoke host userkey?"
+		echo "usage: access revoke host --username username"
+		exit 1
+	fi
+
+	host=$1
+	shift
+	case $1 in
+
+	--username)
+		shift
+		username=$1
+		;;
+	*) userkey=$1 ;;
+	esac
+
+	if [ "$#" -ne 1 ]; then
+		echo "usage: access revoke host userkey?"
+		echo "usage: access revoke host --username username"
+		exit 1
+	fi
+
+	shift
+	alias revoke=_revoke
+	;;
+#
+# Access: Status command
+# usage: script-name status host username:(optional)
+# host		- TODO
+# userkey	- TODO
+#
+status)
+	shift
+	if [ "$#" -lt 0 ]; then
+		echo "usage: access revoke host userkey?"
+		echo "usage: access revoke host --username username"
+		exit 1
+	fi
+
+	host=$1
+	shift
+
+	if [ "$#" -gt 0 ]; then
+		case $1 in
+		--username)
+			shift
+			username=$1
+			;;
+		*) userkey=$1 ;;
+		esac
+
+		if [ "$#" -ne 1 ]; then
+			echo "usage: access status host userkey?"
+			echo "usage: access status host --username username"
+			exit 1
+		fi
+		shift
+	fi
+
+	alias status=_status
+	;;
+#
+# Tokens: Get User command
+#
+get-user)
+	shift
+	userkey=$1
+	if [ "$#" -ne 1 ]; then
+		echo "usage: 	tokens get-user host user.key"
+		echo "returns:	username"
+	fi
+	shift
+	alias getuser=_getuser
+	;;
+#
+# Tokens: Get Access Token command
+#
+get-access-token)
+	shift
+	host=$1
+	username=$2
+	shift 2
+
+	if [ "$#" -ne 0 ]; then
+		tokenkey=$1
+		shift
+		if [ "$#" -eq 1 ]; then
+			scope=$1
+			shift
+		elif [ "$#" -gt 1 ]; then
+			echo "usage: 	tokens get-access-token host username token.key scope? $*"
+			echo "TOO_MANY_ARGUMENTS" >&2
+
+			exit 1
+		fi
+	fi
+
+	alias getaccesstoken=_getaccesstoken
+	;;
+#
+# Tokens: Delete User command
+#
+delete-user)
+	shift
+	case $1 in
+
+	--username)
+		shift
+		username=$1
+		;;
+	*) userkey=$1 ;;
+	esac
+
+	if [ "$#" -ne 1 ]; then
+		echo "usage: access delete-user host userkey?"
+		echo "usage: access delete-user host --username username"
+		exit 1
+	fi
+
+	shift
+	alias deleteuser=_deleteuser
+	;;
+#
+# Store - JSON command
+#
+json)
+	shift
+	host=$1
+	scope=$2
+	userkey=$3
+	if [ "$#" -ne 3 ]; then
+		echo "usage: store json <host> <scope> <userkey>"
+		echo "error: not enough arguments"
+		exit 1
+	fi
+
+	shift 3
+	alias json=_json
+	;;
+*)
+	echo "TODO Write help $0 $*"
+	exit 0
+	;;
+esac
+
+# Process Access Method parameters
+case $1 in
+
+--*)
+	ACCESS_METHOD="$1"
+	shift
+	;;
+esac
+
+ACCESS_METHOD_ARGS="$*"
+ACCESS_METHOD_ARGS=${ACCESS_METHOD_ARGS:-'--'}
+
+case $ACCESS_METHOD in
+
+--daemon)
+	shift
+	if [ -z "$DAEMON_CLIENT_ID" ]; then
+		# shellcheck disable=SC2086
+		set $ACCESS_METHOD_ARGS
+		case $1 in
+
+		--client-id)
+			shift
+			DAEMON_CLIENT_ID=$1
+			shift
+			ACCESS_METHOD_ARGS="$*"
+			;;
+		esac
+		set --
+	fi
+	if [ -z "$DAEMON_CLIENT_ID" ]; then
+		echo "usage: .. --daemon --client-id <client-id>"
+		echo "usage: DAEMON_CLIENT_ID=<client-id> .. --daemon"
+		echo "error: missing client id for daemon"
+		exit 1
+	fi
+	;;
+--cli)
+	shift
+	;;
+*)
+	if [ -n "$DAEMON_CLIENT_ID" ]; then
+		ACCESS_METHOD="--daemon"
+	else
+		ACCESS_METHOD="--cli"
+	fi
+	;;
+esac
+
+# Access Methods
+# There should be at least 2 seperate methods of access for an access provider, cli and daemon
+# --cli, for interactive use
+# --daemon, for service to service use,
+#	requires either DAEMON_CLIENT_ID to be set or the parameter --client-id followed by the client-id
+#	TODO --client-cert <path>
+
+# Authenticate takes a challenge file which a single row of a working access index
+# In addition any other arguments left over will be passed in via ACCESS_METHOD_ARGS
+Authenticate() {
+	local challengeFile="$1"
+
+	# Challenge file format
+	# $realm $service $scope user.$$ token.$$
+	if [ ! -f "$challengeFile" ]; then
+		exit 1
+	fi
+
+	# shellcheck disable=SC2086
+	set $ACCESS_METHOD_ARGS
+	case $ACCESS_METHOD in
+
+	--daemon)
+		DAEMON_CLIENT_ID="$DAEMON_CLIENT_ID" auth_method_daemon_authenticate "$challengeFile" -- "$*"
+		;;
+	--cli)
+		auth_method_cli_authenticate "$challengeFile" -- "$*"
+		;;
+	esac
+	set --
+
+	return $?
+}
+
+# Check is a function that should output the current status if it is active, if not return 1
+Check() {
+	local indexes="$1"
+	local ec=
+	if [ -z "$indexes" ]; then
+		exit 1
+	fi
+
+	# shellcheck disable=SC2086
+	set $ACCESS_METHOD_ARGS
+	case $ACCESS_METHOD in
+
+	--daemon)
+		DAEMON_CLIENT_ID="$DAEMON_CLIENT_ID" auth_method_daemon_check "$indexes" -- "$*"
+		;;
+	--cli)
+		auth_method_cli_check "$indexes" -- "$*"
+		;;
+	esac
+	set --
+
+	return $?
+}
+
+set -f nologs
+set --
+main() {
+	case "$context" in
+
+	login)
+		for cmd in challenge revoke status; do
+			if type $cmd >/dev/null; then
+				case "$cmd" in
+
+				challenge) challenge "$realm" "$service" "$scope" ;;
+				revoke) revoke "$host" "${userkey:-$username}" ;;
+				status) status "$host" "${userkey:-$username}" ;;
+				*) exit 1 ;;
+				esac
+				break
+			fi
+		done
+		;;
+	access)
+		for cmd in getuser getaccesstoken deleteuser; do
+			if type $cmd >/dev/null; then
+				case "$cmd" in
+				getuser) getuser "$userkey" ;;
+				getaccesstoken) getaccesstoken "$host" "$username" "$tokenkey" "$scope" ;;
+				deleteuser) deleteuser "${userkey:-$username}" ;;
+				*) exit 1 ;;
+				esac
+				break
+			fi
+		done
+		;;
+	store)
+		if type json >/dev/null; then
+			case "$cmd" in
+
+			json) json ;;
+			*) exit 1 ;;
+			esac
+		fi
+		;;
+	*) exit 1 ;;
+	esac
+}
+
+_challenge() {
+	local realm=$1
+	local service=$2
+	local scope=$3
+
+	# Example shell protocol
+	# Since this can be called from multiple instances, create a temp file to track our status
+	# (The $$ gets the current id which must be unique)
+	local challengeWork="$0.$service.$$.temp"
+	# the result will be appended to the access file
+	local access="$0.$service.access"
+
+	# Checking status
+	if [ -f "$access" ] && [ -s "$access" ]; then
+		if _access "$access" "$service" "$scope"; then
+			echo "Already logged in" >&2
+			exit 0
+		fi
+	fi
+
+	# Setup temp working file
+	: >"$challengeWork"
+	# shellcheck disable=SC2064
+	trap "rm -f $challengeWork" INT HUP EXIT
+
+	# Write the current challenge
+	cat <<-EOF >>"$challengeWork"
+		$realm $service $scope user.$$ token.$$
+	EOF
+
+	# Make readonly
+	chmod +rx "$challengeWork"
+
+	if Authenticate "$challengeWork" -eq 0; then
+		# Save it to the access file, it's okay to have duplicates
+		cat "$challengeWork" >>"$access"
+	else
+		exit 1
+	fi
+
+	# Check the status
+	if _access "$access" "$service" "$scope"; then
+		exit 0
+	fi
+
+	echo "Failed to authenticate"
+	exit 1
+}
+
+_revoke() {
+	local host=$1
+	local user=$2
+
+	local access="$0.$host.access"
+	if [ ! -f "$access" ]; then
+		echo "Anonymous"
+		exit 1
+	fi
+	# TODO grep for the username
+	: >"$access"
+	exit 0
+}
+
+_status() {
+	local access="$0.$host.access"
+	if [ ! -f "$access" ] || [ ! -s "$access" ]; then
+		echo "Anonymous"
+		exit 1
+	fi
+
+	if sort "$access" | uniq -c | grep "$host.*$userkey" >/dev/null; then
+		_access "$access" "$host" '*' "$userkey"
+		exit $?
+	fi
+}
+
+_access() {
+	local a=$1
+	local h=$2
+	local s=$3
+	s=${s:-"pull"}
+	local u=$4
+	u=${u:-?}
+	local at=$5
+	at=${at:-?+}
+
+	current=$(grep -n -E "^.+$h.$s.$u.$at$" "$a" | awk '
+		{
+			fieldsep=":"
+			n=split($1, array, fieldsep)
+			printf "%d\t%s\t%s\t%s\t%s\n", array[1], $2, $3, $4, $5
+		}')
+
+	if [ -n "$current" ]; then
+		# shellcheck disable=SC2086
+		if Check $current -eq 0; then
+			return 0
+		fi
+	fi
+
+	return 1
+}
+
+_getuser() {
+	local uk="$1"
+
+	username=$(_find_username "$uk")
+
+	echo "$username"
+
+	return 0
+}
+
+_getaccesstoken() {
+	local h="$1"
+	local u="$2"
+	local tk="$3"
+	local sc="$4"
+	local b="$u@?service=$h&scope=$sc"
+
+	b=$(echo "$b" | sed 's/\//-/g')
+
+	at=$(get_secret "$b" "$tk")
+
+	echo "$at"
+
+	return 0
+}
+
+_deleteuser() {
+	local uk="$1"
+	return 0
+}
+
+_json() {
+	local st="$1"
+
+	# First, get content of status lookup
+	table=$(echo "$st" | awk '{ 
+		if (NR > 2 && NF > 2) 
+		{	 
+			print $2,$4,$5 
+		}
+	}')
+
+	formatJSON_BEGIN="BEGIN{
+		rootdir=\"$ORAS_ACCESS_DIR\"
+	}"
+	# shellcheck disable=SC2016
+	formatJSON_BODY='{
+		printf "{ "AccessProviderDir": "%s/%s/", "UserKey": "%s", "TokenKey": "%s" }", rootDir, $1, $2, $3;
+	}'
+	formatJSON="$formatJSON_BEGIN$formatJSON_BODY"
+
+	echo "$table" | awk "$formatJSON"
+	return $?
+}
+
+main
+exit 0

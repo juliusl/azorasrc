@@ -1,0 +1,221 @@
+#!/bin/sh
+# shellcheck disable=SC3043
+
+#
+# Setup username index
+# <username>:<userkey>,<userkey>...
+#
+
+USERS_TABLE_KEY_SEP=" "
+USERS_TABLE="$ORAS_BEGIN_ENV/$ORAS_NAMESPACE/access/users"
+_set_user() {
+    local username=$1
+    local userkey=$2
+
+    if [ ! -f "$USERS_TABLE" ]; then
+        echo "$username:$userkey$USERS_TABLE_KEY_SEP" >"$USERS_TABLE"
+        return $?
+    fi
+
+    existing=$(grep -E "$username" "$USERS_TABLE")
+    if [ "$existing" = "" ]; then
+        echo "$username:$userkey$USERS_TABLE_KEY_SEP" >>"$USERS_TABLE"
+        return 0
+    fi
+
+    updated=$(sed -n "/^$username:.*/p" "$USERS_TABLE" | sed "s/\(^$username:.*\)$/\1$USERS_TABLE_KEY_SEP$userkey/")
+    rest=$(sed "/^$username:.*/d" "$USERS_TABLE")
+
+    : >"$USERS_TABLE"
+
+    # shellcheck disable=SC2086
+    echo $updated >>"$USERS_TABLE"
+    # shellcheck disable=SC2086
+    echo $rest >>"$USERS_TABLE"
+
+    return $?
+}
+
+_find_username() {
+    local userkey=$1
+
+    username=$(
+        grep -E "$userkey" "$USERS_TABLE" |
+            awk -F ':' '{print $1}'
+    )
+
+    echo "$username"
+}
+
+#
+#  Secret store backend w/ encpass.sh
+#
+# Note: This directory are where secrets are stored
+export ENCPASS_HOME_DIR="$ORAS_BEGIN_ENV/$ORAS_NAMESPACE/access"
+_setsecret() {
+    local bucket=$1
+    local key=$2
+    local secret=$3
+
+    bucket=$(echo "$bucket" | sed 's/\//-/g')
+
+    # TODO When import/export gets added, a guided experience could get added.
+    # for example you go into cloudshell, setup what you need, export, and then when you need it.
+    # import and run.
+    if [ -n "$secret" ]; then
+        # To pass this non-interactively, these values must be set:
+        # ENCPASS_FIFO
+        # ENCPASS_SECRET_INPUT
+        # ENCPASS_CSECRET_INPUT
+        # shellcheck disable=SC1090
+        ENCPASS_FIFO="$(
+            . "$ENCPASS_SH_PATH"
+            encpass_mkfifo set_secret_fifo
+        )" \
+        ENCPASS_SECRET_INPUT="$secret" \
+        ENCPASS_CSECRET_INPUT="$secret" \
+            $ENCPASS_SH_PATH add -f "$bucket" "$key"
+    else
+        $ENCPASS_SH_PATH add -f "$bucket" "$key"
+    fi
+
+    return $?
+}
+
+_removesecret() {
+    local bucket=$1
+    local secret=$2
+    $ENCPASS_SH_PATH rm -f "$bucket" "$secret"
+    return $?
+}
+
+_hassecret() {
+    local bucket=$1
+    $ENCPASS_SH_PATH ls | grep -E "$bucket"
+    return $?
+}
+
+#
+# Setup access method event handlers
+# Note: This will be called by the rc file. Required parameters have been validated. Additional arguments are left unchecked.
+#
+
+daemon_authenticate() {
+    local clientid="$DAEMON_CLIENT_ID"
+    local challengePath="$1"
+
+    if shift; then
+        : # TODO Process any additional arguments, test $#
+    fi
+
+    cat "$challengePath"
+    echo "$clientid" "$challengePath"
+}
+
+daemon_check() {
+    local clientid="$DAEMON_CLIENT_ID"
+    local indexes="$1"
+
+    if shift; then
+        : # TODO Process any additional arguments, test $#
+    fi
+
+    echo "$clientid" "$indexes"
+}
+
+cli_authenticate() {
+    local challengePath="$1"
+
+    if shift; then
+        : # TODO GET OPTS
+    fi
+
+    index=$(cat "$challengePath")
+
+    ## Columns
+    ## LineNo, Host, Scope, UserKey, TokenKey
+
+    # shellcheck disable=SC2086
+    set $index
+    local realm=$1
+    local service=$2
+    local scope=$3
+    local userkey=$4
+    local tokenkey=$5
+    local u=
+
+    case $realm in
+    https://auth.docker.io/token)
+        # grant_type=access_token&tenant=$tenant
+        api="$realm?service=$service&scope=$scope"
+        tk=$(curl -s "$api" | sed 's/[{}":,]*//g' | awk '{if ($1 == "token") print $2}')
+        if [ -n "$tk" ]; then
+            b="00000000-0000-0000-0000-000000000000@?service=$service&scope=$scope"
+            _setsecret "$b" "$tokenkey" "$tk"
+            statusJSON=$(echo "$ORAS_BEGIN_ENV/$ORAS_NAMESPACE/login/$service/$scope" | sed 's/:/\//g' | sed 's/,//g')
+            echo "$statusJSON" >> "$ORAS_BEGIN_ENV/$ORAS_NAMESPACE/out"
+            mkdir -p "$statusJSON"
+            cat <<-EOF >"$statusJSON/status.json"
+            {
+            "AccessRoot": "$ORAS_BEGIN_ENV/$ORAS_NAMESPACE/access",
+            "UserKey": "$userkey",
+            "TokenKey": "$tokenkey",
+            "Host": "registry-1.docker.io"
+            }
+EOF
+            _set_user "00000000-0000-0000-0000-000000000000" "$userkey"
+            return 0
+        fi
+        exit 1
+        ;;
+    esac
+
+    return 1
+}
+
+cli_check() {
+    local indexes="$1"
+    #local args=
+
+    # if shift; then
+    #     args="$@"
+    # fi
+
+    ## Columns
+    ## LineNo, Host, Scope, UserKey, TokenKey
+
+    # shellcheck disable=SC2086
+    set $indexes
+    while [ $# -ge 5 ]; do
+        local line=$1
+        local host=$2
+        local scope=$3
+        local userkey=$4
+        local tokenkey=$5
+        local u=
+
+        shift 5
+        printf "%s\t%s\t%s\t%s\t%s\n" "$line" "$host" "$scope" "$userkey" "$tokenkey"
+
+        if ! u=$(_find_username "$userkey") >/dev/null; then
+            echo 'not logged in'
+            return 1
+        fi
+
+        if [ "$(_hassecret "$u@?service=$host&scope=$scope")" -eq 1 ]; then
+            echo 'is not authenticated'
+            return 1
+        fi
+
+        return 0
+    done
+
+    return 1
+}
+
+# Auth Events
+alias auth_method_cli_authenticate=cli_authenticate
+alias auth_method_cli_check=cli_check
+
+alias auth_method_daemon_authenticate=daemon_authenticate
+alias auth_method_daemon_check=daemon_check
