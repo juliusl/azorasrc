@@ -4,4 +4,4 @@
 [submodule "deps/oras-go"]
 	path = deps/oras-go
 	url = git@github.com:juliusl/oras-go.git
-	branch = juliusl/remotes-with-login2
+	branch = juliusl/remotes-with-login
