@@ -2,6 +2,7 @@ package auto
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -79,11 +80,62 @@ func SetDirectories(working, output string) error {
 	return nil
 }
 
+func SetupV1ManifestStore(desc v1.Descriptor, manifest v1.Manifest) error {
+	cachedir, err := os.UserCacheDir()
+	if err != nil {
+		return err
+	}
+
+	var (
+		host, namespace, loc string
+	)
+
+	host, ok := manifest.Annotations["host"]
+	if !ok {
+		return errors.New("missing host annotation")
+	}
+
+	namespace, ok = manifest.Annotations["namespace"]
+	if !ok {
+		return errors.New("missing namespace annotation")
+	}
+
+	loc, ok = manifest.Annotations["loc"]
+	if !ok {
+		return errors.New("missing loc annotation")
+	}
+
+	storeDir := path.Join(cachedir, host, namespace, loc, desc.Digest.String())
+	err = os.MkdirAll(storeDir, os.ModeDir)
+	if err != nil {
+		return err
+	}
+
+	err = SetDirectories("./work", storeDir)
+	if err != nil {
+		return err
+	}
+
+	m, err := os.Create(path.Join(storeDir, "manifest.json"))
+	if err != nil {
+		return err
+	}
+
+	defer m.Close()
+
+	err = json.NewEncoder(m).Encode(manifest)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
 func Discover(ctx context.Context, desc v1.Descriptor, artifactType string) (*remotes.Artifacts, error) {
 	return discover(ctx, desc, artifactType)
 }
 
-func Resolve(ctx context.Context) (*v1.Manifest, error) {
+func Resolve(ctx context.Context) (*v1.Descriptor, *v1.Manifest, error) {
 	return registry.GetManifest(ctx, reference)
 }
 
@@ -94,12 +146,12 @@ func Fetch(ctx context.Context, descs ...v1.Descriptor) (bytes int, err error) {
 			err = fmt.Errorf("error: %w", err)
 			return bytes, err
 		}
+		defer blob.Close()
 
 		f, err := tempFile(desc)
 		if err != nil {
 			return bytes, err
 		}
-
 		defer f.Close()
 
 		files = append(files, f.Name())
