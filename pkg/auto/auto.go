@@ -68,6 +68,14 @@ func SetDirectories(working, output string) error {
 		}
 	}
 
+	if working != "" && workingDir != working {
+		return errors.New("did not set working dir")
+	}
+
+	if output != "" && outputDir != output {
+		return errors.New("did not set output dir")
+	}
+
 	return nil
 }
 
