@@ -2,9 +2,11 @@ package auto
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
+	"path"
 	"strings"
 
 	"github.com/juliusl/azorasrc/pkg/auto/docker"
@@ -13,13 +15,13 @@ import (
 )
 
 var (
-	outputDir string
-	reference string
-	registry  *remotes.Registry
-	fetch     func(ctx context.Context, desc v1.Descriptor) (io.ReadCloser, error)
-	discover  func(ctx context.Context, desc v1.Descriptor, artifactType string) (*remotes.Artifacts, error)
-
-	files []string
+	registry   *remotes.Registry
+	fetch      func(ctx context.Context, desc v1.Descriptor) (io.ReadCloser, error)
+	discover   func(ctx context.Context, desc v1.Descriptor, artifactType string) (*remotes.Artifacts, error)
+	files      []string
+	workingDir string
+	outputDir  string
+	reference  string
 )
 
 func init() {
@@ -30,6 +32,9 @@ func init() {
 		os.Exit(1)
 	}
 	reference = os.Args[1]
+
+	workingDir = "/temp"
+	outputDir = ""
 }
 
 func init() {
@@ -38,6 +43,36 @@ func init() {
 
 	// Set the discoverer
 	discover = registry.AsFunctions().Discoverer()
+}
+
+func SetDirectories(working, output string) error {
+	for i, d := range []string{working, output} {
+		if d == "" {
+			continue
+		}
+
+		info, err := os.Stat(d)
+		if err != nil {
+			return err
+		}
+
+		if info.IsDir() {
+			switch i {
+			case 0:
+				workingDir = d
+			case 1:
+				outputDir = d
+			}
+		} else {
+			return errors.New("path is not a directory")
+		}
+	}
+
+	return nil
+}
+
+func Discover(ctx context.Context, desc v1.Descriptor, artifactType string) (*remotes.Artifacts, error) {
+	return discover(ctx, desc, artifactType)
 }
 
 func Resolve(ctx context.Context) (*v1.Manifest, error) {
@@ -52,7 +87,7 @@ func Fetch(ctx context.Context, descs ...v1.Descriptor) (bytes int, err error) {
 			return bytes, err
 		}
 
-		f, err := os.CreateTemp("", fmt.Sprintf("%s-*", desc.Digest.String()))
+		f, err := tempFile(desc)
 		if err != nil {
 			return bytes, err
 		}
@@ -80,21 +115,49 @@ func Fetch(ctx context.Context, descs ...v1.Descriptor) (bytes int, err error) {
 
 func Commit(ctx context.Context) error {
 	for _, path := range files {
-		bytes, err := os.ReadFile(path)
+		src, err := os.Open(path)
 		if err != nil {
 			return err
 		}
 
-		f := path[:strings.IndexByte(path, '-')]
-		err = os.WriteFile(f, bytes, 0644)
+		defer src.Close()
+
+		dest, err := committedFile(path)
 		if err != nil {
 			return err
 		}
 
-		os.Stdout.WriteString(f)
-		os.Stdout.WriteString("\n")
-		os.Remove(path)
+		defer dest.Close()
+
+		written, err := io.Copy(dest, src)
+		if err != nil {
+			return err
+		}
+
+		if written > 0 {
+			os.Stdout.WriteString(dest.Name())
+			os.Stdout.WriteString("\n")
+			os.Remove(path)
+		} else {
+			return errors.New("could not write to destination")
+		}
 	}
 
 	return nil
+}
+
+func tempFile(desc v1.Descriptor) (*os.File, error) {
+	filename := fmt.Sprintf("%s-*", desc.Digest.String())
+
+	path := path.Join(workingDir, filename)
+
+	return os.Open(path)
+}
+
+func committedFile(tempFile string) (*os.File, error) {
+	filename := tempFile[:strings.IndexByte(tempFile, '-')]
+
+	path := path.Join(outputDir, filename)
+
+	return os.Open(path)
 }
