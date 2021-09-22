@@ -15,6 +15,12 @@ func main() {
 
 	defer cancel()
 
+	err := auto.SetDirectories("./work", "./output")
+	if err != nil {
+		os.Stderr.WriteString(err.Error())
+		os.Exit(1)
+	}
+
 	manifest, err := auto.Resolve(ctx)
 	if err != nil {
 		os.Stderr.WriteString(err.Error())

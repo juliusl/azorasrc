@@ -114,15 +114,14 @@ func Fetch(ctx context.Context, descs ...v1.Descriptor) (bytes int, err error) {
 }
 
 func Commit(ctx context.Context) error {
-	for _, path := range files {
-		src, err := os.Open(path)
+	for _, work := range files {
+		src, err := os.Open(work)
 		if err != nil {
 			return err
 		}
-
 		defer src.Close()
 
-		dest, err := committedFile(path)
+		dest, err := committedFile(path.Base(work))
 		if err != nil {
 			return err
 		}
@@ -137,7 +136,7 @@ func Commit(ctx context.Context) error {
 		if written > 0 {
 			os.Stdout.WriteString(dest.Name())
 			os.Stdout.WriteString("\n")
-			os.Remove(path)
+			os.Remove(work)
 		} else {
 			return errors.New("could not write to destination")
 		}
@@ -151,7 +150,7 @@ func tempFile(desc v1.Descriptor) (*os.File, error) {
 
 	path := path.Join(workingDir, filename)
 
-	return os.Open(path)
+	return os.Create(path)
 }
 
 func committedFile(tempFile string) (*os.File, error) {
@@ -159,5 +158,5 @@ func committedFile(tempFile string) (*os.File, error) {
 
 	path := path.Join(outputDir, filename)
 
-	return os.Open(path)
+	return os.Create(path)
 }
