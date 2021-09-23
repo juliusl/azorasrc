@@ -47,16 +47,18 @@ func main() {
 	// Discover artifacts
 	artifacts, err := auto.Discover(ctx, *desc, "")
 	if err != nil {
-		exitWithError(err)
-	}
-
-	// Fetch artifacts
-	for _, a := range artifacts {
-		written, err = auto.FetchArtifact(ctx, a.Blobs...)
-		if err != nil {
+		if err.Error() != "HTTP 404" {
 			exitWithError(err)
 		}
-		total += written
+	} else {
+		// Fetch artifacts
+		for _, a := range artifacts {
+			written, err = auto.FetchArtifact(ctx, a.Blobs...)
+			if err != nil {
+				exitWithError(err)
+			}
+			total += written
+		}
 	}
 
 	commitIfContent(ctx, total)
