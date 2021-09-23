@@ -11,7 +11,7 @@ import (
 
 func New(ctx context.Context, reference string) (*remotes.Registry, error) {
 	// Parse and validate reference
-	host, ns, _, err := remotes.Parse(reference)
+	_, host, ns, _, err := remotes.Parse(reference)
 	if err != nil {
 		err = fmt.Errorf("parse-error: %w", err)
 		return nil, err
