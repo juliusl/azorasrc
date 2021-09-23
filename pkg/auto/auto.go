@@ -11,18 +11,22 @@ import (
 	"strings"
 
 	"github.com/juliusl/azorasrc/pkg/auto/docker"
-	v1 "github.com/opencontainers/image-spec/specs-go/v1"
+	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
+	artifactspec "github.com/oras-project/artifacts-spec/specs-go/v1"
 	"oras.land/oras-go/pkg/remotes"
 )
 
 var (
 	registry   *remotes.Registry
-	fetch      func(ctx context.Context, desc v1.Descriptor) (io.ReadCloser, error)
-	discover   func(ctx context.Context, desc v1.Descriptor, artifactType string) (*remotes.Artifacts, error)
+	fetch      func(ctx context.Context, desc ocispec.Descriptor) (io.ReadCloser, error)
+	discover   func(ctx context.Context, desc ocispec.Descriptor, artifactType string) (*remotes.Artifacts, error)
 	files      []string
 	workingDir string
 	outputDir  string
 	reference  string
+	host       string
+	namespace  string
+	loc        string
 )
 
 func init() {
@@ -80,17 +84,14 @@ func SetDirectories(working, output string) error {
 	return nil
 }
 
-func SetupV1ManifestStore(desc v1.Descriptor, manifest v1.Manifest) error {
+func SetupV1ManifestStore(desc ocispec.Descriptor, manifest ocispec.Manifest) error {
 	cachedir, err := os.UserCacheDir()
 	if err != nil {
 		return err
 	}
 
-	var (
-		host, namespace, loc string
-	)
-
-	host, ok := manifest.Annotations["host"]
+	var ok bool
+	host, ok = manifest.Annotations["host"]
 	if !ok {
 		return errors.New("missing host annotation")
 	}
@@ -106,7 +107,7 @@ func SetupV1ManifestStore(desc v1.Descriptor, manifest v1.Manifest) error {
 	}
 
 	storeDir := path.Join(cachedir, host, namespace, loc, desc.Digest.String())
-	err = os.MkdirAll(storeDir, os.ModeDir)
+	err = os.MkdirAll(storeDir, 0755)
 	if err != nil {
 		return err
 	}
@@ -116,7 +117,8 @@ func SetupV1ManifestStore(desc v1.Descriptor, manifest v1.Manifest) error {
 		return err
 	}
 
-	m, err := os.Create(path.Join(storeDir, "manifest.json"))
+	pathToManifest := path.Join(storeDir, "manifest.json")
+	m, err := os.Create(pathToManifest)
 	if err != nil {
 		return err
 	}
@@ -131,15 +133,62 @@ func SetupV1ManifestStore(desc v1.Descriptor, manifest v1.Manifest) error {
 	return nil
 }
 
-func Discover(ctx context.Context, desc v1.Descriptor, artifactType string) (*remotes.Artifacts, error) {
-	return discover(ctx, desc, artifactType)
+func Discover(ctx context.Context, desc ocispec.Descriptor, artifactType string) ([]artifactspec.Manifest, error) {
+	refs, err := discover(ctx, desc, artifactType)
+	if err != nil {
+		return nil, err
+	}
+
+	artifacts := make([]artifactspec.Manifest, len(refs.References))
+
+	for i, r := range refs.References {
+		// assemble ref
+		aref := fmt.Sprintf("%s/%s@%s", host, namespace, r.Digest.String())
+
+		_, manifest, err := registry.GetArtifactManifest(ctx, aref)
+		if err != nil {
+			return nil, err
+		}
+
+		artifacts[i] = *manifest
+	}
+
+	apath := path.Join(outputDir, "discovered-artifacts.json")
+	f, err := os.Create(apath)
+	if err != nil {
+		return nil, err
+	}
+
+	err = json.NewEncoder(f).Encode(artifacts)
+	if err != nil {
+		return nil, err
+	}
+
+	return artifacts, nil
 }
 
-func Resolve(ctx context.Context) (*v1.Descriptor, *v1.Manifest, error) {
+func Resolve(ctx context.Context) (*ocispec.Descriptor, *ocispec.Manifest, error) {
 	return registry.GetManifest(ctx, reference)
 }
 
-func Fetch(ctx context.Context, descs ...v1.Descriptor) (bytes int, err error) {
+func FetchArtifact(ctx context.Context, descs ...artifactspec.Descriptor) (bytes int, err error) {
+	normalize := make([]ocispec.Descriptor, len(descs))
+
+	for i, d := range descs {
+		normalize[i] = ocispec.Descriptor{
+			Size:        d.Size,
+			MediaType:   d.MediaType,
+			Digest:      d.Digest,
+			Annotations: d.Annotations,
+		}
+
+		normalize[i].Annotations["artifactType"] = d.ArtifactType
+	}
+
+	return Fetch(ctx, normalize...)
+}
+
+func Fetch(ctx context.Context, descs ...ocispec.Descriptor) (bytes int, err error) {
 	for _, desc := range descs {
 		blob, err := fetch(ctx, desc)
 		if err != nil {
@@ -205,7 +254,7 @@ func Commit(ctx context.Context) error {
 	return nil
 }
 
-func tempFile(desc v1.Descriptor) (*os.File, error) {
+func tempFile(desc ocispec.Descriptor) (*os.File, error) {
 	filename := fmt.Sprintf("%s-*", desc.Digest.String())
 
 	path := path.Join(workingDir, filename)

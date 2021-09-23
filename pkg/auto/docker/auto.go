@@ -26,7 +26,7 @@ func init() {
 }
 
 func init() {
-	host, namespace, _, err := remotes.Parse(reference)
+	_, host, namespace, _, err := remotes.Parse(reference)
 	if err != nil {
 		os.Stderr.WriteString("could not parse reference")
 		os.Exit(1)

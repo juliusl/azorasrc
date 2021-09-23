@@ -30,17 +30,34 @@ func main() {
 		exitWithError(err)
 	}
 
+	// Fetch image config
 	written, err := auto.Fetch(ctx, manifest.Config)
 	if err != nil {
 		exitWithError(err)
 	}
 	total += written
 
+	// Fetch layers
 	written, err = auto.Fetch(ctx, manifest.Layers...)
 	if err != nil {
 		exitWithError(err)
 	}
 	total += written
+
+	// Discover artifacts
+	artifacts, err := auto.Discover(ctx, *desc, "")
+	if err != nil {
+		exitWithError(err)
+	}
+
+	// Fetch artifacts
+	for _, a := range artifacts {
+		written, err = auto.FetchArtifact(ctx, a.Blobs...)
+		if err != nil {
+			exitWithError(err)
+		}
+		total += written
+	}
 
 	commitIfContent(ctx, total)
 	os.Exit(0)
